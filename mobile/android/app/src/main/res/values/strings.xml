@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">FaceRecognition AWS</string>
+    <string name="title_activity_main">FaceRecognition AWS</string>
+    <string name="package_name">gt.edu.fernando.facerecognition</string>
+    <string name="custom_url_scheme">gt.edu.fernando.facerecognition</string>
+</resources>

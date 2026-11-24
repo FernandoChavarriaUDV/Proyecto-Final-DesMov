@@ -1,0 +1,270 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Fernando - academic facial registry, isolated from Censo Desmov
+Parameters:
+  SimilarityThreshold:
+    Type: Number
+    Default: 95
+    MinValue: 80
+    MaxValue: 100
+  LivenessThreshold:
+    Type: Number
+    Default: 90
+    MinValue: 80
+    MaxValue: 100
+Globals:
+  Function:
+    Runtime: nodejs24.x
+    Handler: index.handler
+    Timeout: 30
+    MemorySize: 256
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref Registry
+        COLLECTION_ID: !Ref Faces
+        SIMILARITY_THRESHOLD: !Ref SimilarityThreshold
+Resources:
+  LivenessSessions:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+  StreamingIdentities:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ClientId: !Ref AppClient
+          ProviderName: !GetAtt Users.ProviderName
+          ServerSideTokenCheck: true
+  StreamingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                cognito-identity.amazonaws.com:aud: !Ref StreamingIdentities
+              ForAnyValue:StringLike:
+                cognito-identity.amazonaws.com:amr: authenticated
+      Policies:
+        - PolicyName: OnlyLivenessStreaming
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: rekognition:StartFaceLivenessSession
+                Resource: '*'
+  StreamingRoles:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref StreamingIdentities
+      Roles:
+        authenticated: !GetAtt StreamingRole.Arn
+  Faces:
+    Type: AWS::Rekognition::Collection
+    Properties:
+      CollectionId: !Sub '${AWS::StackName}-faces'
+  Registry:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      SSESpecification:
+        SSEEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+  Users:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub '${AWS::StackName}-users'
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: true
+      UsernameAttributes: [email]
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: ADMIN
+      UserPoolId: !Ref Users
+  AppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      UserPoolId: !Ref Users
+      GenerateSecret: false
+      ExplicitAuthFlows: [ALLOW_USER_PASSWORD_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      PreventUserExistenceErrors: ENABLED
+      IdTokenValidity: 1
+      AccessTokenValidity: 1
+      TokenValidityUnits:
+        IdToken: hours
+        AccessToken: hours
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: v1
+      EndpointConfiguration: REGIONAL
+      Auth:
+        DefaultAuthorizer: UserPool
+        AddDefaultAuthorizerToCorsPreflight: false
+        Authorizers:
+          UserPool:
+            UserPoolArn: !GetAtt Users.Arn
+      Cors:
+        AllowOrigin: "'https://localhost'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowMethods: "'GET,POST,OPTIONS'"
+      GatewayResponses:
+        DEFAULT_4XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'https://localhost'"
+        DEFAULT_5XX:
+          ResponseParameters:
+            Headers:
+              Access-Control-Allow-Origin: "'https://localhost'"
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          ThrottlingBurstLimit: 5
+          ThrottlingRateLimit: 2
+  RegisterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../dist/register-face/
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: [rekognition:IndexFaces]
+              Resource: !GetAtt Faces.Arn
+            - Effect: Allow
+              Action: [dynamodb:PutItem, dynamodb:UpdateItem, dynamodb:DeleteItem, dynamodb:Scan]
+              Resource: !GetAtt Registry.Arn
+            - Effect: Allow
+              Action: rekognition:DetectFaces
+              Resource: '*'
+      Events:
+        Post:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /register
+            Method: post
+        List:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /register
+            Method: get
+  RegisterLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${RegisterFunction}'
+      RetentionInDays: 14
+  RecognizeFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../dist/recognize-face/
+      Environment:
+        Variables:
+          SESSIONS_TABLE: !Ref LivenessSessions
+          IDENTITY_POOL_ID: !Ref StreamingIdentities
+          USER_POOL_ID: !Ref Users
+          LIVENESS_THRESHOLD: !Ref LivenessThreshold
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: [rekognition:SearchFacesByImage]
+              Resource: !GetAtt Faces.Arn
+            - Effect: Allow
+              Action: [dynamodb:Scan]
+              Resource: !GetAtt Registry.Arn
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:UpdateItem]
+              Resource: !GetAtt LivenessSessions.Arn
+            - Effect: Allow
+              Action: [rekognition:CreateFaceLivenessSession, rekognition:GetFaceLivenessSessionResults]
+              Resource: '*'
+            - Effect: Allow
+              Action: rekognition:DetectFaces
+              Resource: '*'
+      Events:
+        Post:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /recognize
+            Method: post
+  RecognizeLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${RecognizeFunction}'
+      RetentionInDays: 14
+  DeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../dist/delete-face/
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action: [rekognition:DeleteFaces, rekognition:ListFaces]
+              Resource: !GetAtt Faces.Arn
+            - Effect: Allow
+              Action: [dynamodb:GetItem, dynamodb:UpdateItem, dynamodb:DeleteItem]
+              Resource: !GetAtt Registry.Arn
+      Events:
+        Post:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /delete
+            Method: post
+  DeleteLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DeleteFunction}'
+      RetentionInDays: 14
+Outputs:
+  IdentityPoolId:
+    Value: !Ref StreamingIdentities
+  RegisterUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/v1/register'
+  RecognizeUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/v1/recognize'
+  DeleteUrl:
+    Value: !Sub 'https://${Api}.execute-api.${AWS::Region}.amazonaws.com/v1/delete'
+  UserPoolId:
+    Value: !Ref Users
+  ClientId:
+    Value: !Ref AppClient
+  Region:
+    Value: !Ref AWS::Region

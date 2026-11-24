@@ -1,0 +1,82 @@
+<ion-header class="ion-no-border">
+  <ion-toolbar><ion-title><span class="brand"><ion-icon name="scan-outline"/><span>FaceRecognition <span class="aws">AWS</span></span></span></ion-title></ion-toolbar>
+</ion-header>
+<ion-content><main [class.login-layout]="screen()==='home'&&!api.loggedIn()">
+  @if(screen()!=='home'){<a class="back" routerLink="/home"><ion-icon name="arrow-back-outline"/> Volver al inicio</a>}
+  @if(busy()){<div class="status" role="status"><ion-spinner name="crescent"/><span>Un momento, estamos procesando tu solicitud…</span></div>}
+  @if(error()){<div class="feedback error" role="alert">{{error()}}</div>}
+  @if(notice()){<div class="feedback" [class.success]="!busy()" [class.processing]="busy()" role="status">{{notice()}}</div>}
+
+  @if(screen()==='home'){
+    @if(!api.loggedIn()){
+      <section class="welcome"><span class="welcome-icon"><ion-icon name="scan-outline"/></span><p class="eyebrow">RECONOCIMIENTO FACIAL</p><h1>Te damos la bienvenida</h1><p>Inicia sesión para registrar rostros y realizar una verificación guiada.</p></section>
+      <ion-card class="login-card"><ion-card-content>
+        <h2>Ingresa a tu cuenta</h2><p class="intro">Usa tu correo y contraseña para continuar.</p>
+        <form [formGroup]="loginForm" (ngSubmit)="login()">
+          <ion-input label="Correo electrónico" labelPlacement="stacked" type="email" autocomplete="username" inputmode="email" placeholder="tu.correo@ejemplo.com" formControlName="email" fill="outline"/>
+          @if(loginForm.controls.email.touched&&loginForm.controls.email.invalid){<p class="field-error">Escribe un correo electrónico válido.</p>}
+          <ion-input label="Contraseña" labelPlacement="stacked" [type]="showPassword()?'text':'password'" autocomplete="current-password" formControlName="password" fill="outline" placeholder="Ingresa tu contraseña">
+            <ion-button type="button" slot="end" fill="clear" class="password-toggle" (click)="showPassword.set(!showPassword())" [attr.aria-label]="showPassword()?'Ocultar contraseña':'Mostrar contraseña'"><ion-icon slot="icon-only" [name]="showPassword()?'eye-off-outline':'eye-outline'"/></ion-button>
+          </ion-input>
+          <ion-button expand="block" type="submit" [disabled]="busy()||loginForm.invalid">Iniciar sesión<ion-icon slot="end" name="arrow-forward-outline"/></ion-button>
+        </form>
+        <p class="account-help"><ion-icon name="lock-closed-outline"/> ¿Necesitas acceso? Contacta al administrador.</p>
+      </ion-card-content></ion-card>
+      <p class="privacy-note">Tus datos se utilizan únicamente para este ejercicio académico.</p>
+    }@else{
+      <section class="dashboard-heading"><p class="eyebrow">TU ESPACIO</p><h1>¿Qué quieres hacer hoy?</h1><p>Elige una opción para comenzar.</p><span class="role-label"><ion-icon name="shield-checkmark-outline"/>{{api.admin()?'Administrador':'Cuenta de consulta'}}</span></section>
+      <div class="actions">
+        <a class="action-card action-primary" routerLink="/recognize"><span class="action-icon"><ion-icon name="scan-outline"/></span><span class="action-copy"><strong>Reconocer un rostro</strong><span>Comprueba presencia real y busca una coincidencia.</span></span><ion-icon class="action-arrow" name="arrow-forward-outline"/></a>
+        @if(api.admin()){
+          <a class="action-card" routerLink="/register"><span class="action-icon"><ion-icon name="person-add-outline"/></span><span class="action-copy"><strong>Registrar un rostro</strong><span>Agrega una persona con su autorización.</span></span><ion-icon class="action-arrow" name="arrow-forward-outline"/></a>
+          <a class="action-card" routerLink="/admin"><span class="action-icon"><ion-icon name="shield-checkmark-outline"/></span><span class="action-copy"><strong>Ver registros</strong><span>Consulta y administra los rostros guardados.</span></span><ion-icon class="action-arrow" name="arrow-forward-outline"/></a>
+        }
+      </div>
+      <ion-button class="logout" fill="clear" (click)="api.logout()" [disabled]="busy()"><ion-icon slot="start" name="log-out-outline"/>Cerrar sesión</ion-button>
+      <p class="privacy-note">La prueba de vida comprueba presencia real. La coincidencia indica similitud con un rostro registrado; no garantiza identidad.</p>
+    }
+  }
+
+  @if(screen()==='register'||screen()==='recognize'){
+    <section class="page-heading"><p class="eyebrow">{{screen()==='register'?'NUEVO REGISTRO':'VERIFICACIÓN GUIADA'}}</p><h1>{{screen()==='register'?'Registra un rostro':'Reconoce un rostro'}}</h1><p>{{screen()==='register'?'Completa los datos y toma una foto clara de una sola persona.':'Sigue una breve prueba de vida y consulta si existe una coincidencia.'}}</p></section>
+    @if(!api.loggedIn()||(screen()==='register'&&!api.admin())){<div class="feedback error" role="alert">Inicia sesión con una cuenta autorizada para continuar.</div><ion-button routerLink="/home">Ir al inicio</ion-button>}
+    @else{
+      <ion-card class="form-card"><ion-card-content>
+        @if(screen()==='register'){
+          <form [formGroup]="registerForm"><h2>Datos de la persona</h2><ion-input label="Identificador" labelPlacement="stacked" fill="outline" formControlName="userId" placeholder="Por ejemplo: USR001"/><p class="input-help">Usa letras, números, guiones o guiones bajos.</p><ion-input label="Nombre completo" labelPlacement="stacked" fill="outline" formControlName="name" maxlength="120" placeholder="Nombre y apellido"/>
+            @if(registerForm.invalid&&registerForm.touched){<p class="field-error">Revisa los datos y confirma la autorización.</p>}
+            <div class="consent"><ion-checkbox formControlName="consent" labelPlacement="end">La persona autoriza guardar y comparar su referencia facial para este ejercicio académico.</ion-checkbox></div>
+          </form>
+          <div class="capture">@if(photo()){<img [src]="'data:image/jpeg;base64,'+photo()" alt="Vista previa de la fotografía"/>}@else{<ion-icon name="camera-outline"/><h3>Una foto clara hace la diferencia</h3><p>Busca buena luz y mira de frente a la cámara.</p>}</div>
+          <ion-button expand="block" fill="outline" (click)="capture()" [disabled]="busy()"><ion-icon name="camera-outline" slot="start"/>{{photo()?'Volver a tomar la foto':'Tomar fotografía'}}</ion-button>
+          <ion-button expand="block" (click)="register()" [disabled]="busy()||!photo()||registerForm.invalid">Guardar rostro<ion-icon slot="end" name="checkmark-circle-outline"/></ion-button>
+        }@else{
+          <div class="guide-header"><span class="welcome-icon"><ion-icon name="scan-outline"/></span><h2>Prepárate para la prueba</h2><p>Solo tomará unos momentos.</p></div>
+          <ol class="guide-steps"><li><span>1</span><div><strong>Busca buena iluminación</strong><p>Evita sombras fuertes y luces detrás de ti.</p></div></li><li><span>2</span><div><strong>Mantén el rostro dentro de la guía</strong><p>Sigue las indicaciones que verás en pantalla.</p></div></li><li><span>3</span><div><strong>Consulta tu resultado</strong><p>Primero se comprobará presencia real y luego la coincidencia.</p></div></li></ol>
+          <div class="consent"><ion-checkbox [checked]="recognitionConsent" (ionChange)="recognitionConsent=$event.detail.checked" labelPlacement="end">Autorizo el video selfie y la comparación con los rostros registrados para este ejercicio académico.</ion-checkbox></div>
+          <ion-button expand="block" (click)="recognize()" [disabled]="busy()||!recognitionConsent">Comenzar verificación<ion-icon slot="end" name="arrow-forward-outline"/></ion-button>
+        }
+      </ion-card-content></ion-card>
+      @if(result();as r){
+        <section class="result" [class.result-neutral]="r.recognized===false" [class.result-error]="r.data.livenessPassed===false" aria-live="polite"><p class="eyebrow">TU RESULTADO</p><h2>{{r.message}}</h2>
+          @if(r.data.livenessPassed!==undefined){<div class="result-line"><span>Prueba de vida</span><strong>{{r.data.livenessPassed?'Aprobada':'No aprobada'}}</strong></div><div class="result-line"><span>Confianza de vida</span><strong>{{r.data.livenessConfidence|number:'1.1-2'}} %</strong></div>}
+          @if(r.recognized){<div class="matched-person"><ion-icon name="checkmark-circle-outline"/><div><strong>{{r.data.name}}</strong><span>{{r.data.userId}}</span></div></div><div class="result-line"><span>Similitud</span><strong>{{r.data.similarity|number:'1.1-2'}} %</strong></div><p class="input-help">Umbral de comparación: {{r.data.threshold}} %.</p>}
+          @else if(r.data.userId){<p>Identificador: <strong>{{r.data.userId}}</strong></p>}
+          <p class="result-time">{{r.timestamp|date:'dd/MM/yyyy, HH:mm'}}</p>
+        </section>
+      }
+      <p class="privacy-note">El video y la selfie de consulta no se guardan en nuestra base de datos. La similitud es orientativa y no concede acceso a sistemas.</p>
+    }
+  }
+
+  @if(screen()==='admin'){
+    <section class="page-heading"><p class="eyebrow">ADMINISTRACIÓN</p><h1>Rostros registrados</h1><p>Consulta los datos de cada persona y elimina los registros que ya no necesites.</p></section>
+    @if(!api.loggedIn()||!api.admin()){<div class="feedback error" role="alert">Esta sección requiere una cuenta de administrador.</div><ion-button routerLink="/home">Ir al inicio</ion-button>}
+    @else{
+      <div class="list-toolbar"><span>{{hasLoaded()?records().length+' registros mostrados':'Tus registros'}}</span><ion-button fill="outline" (click)="load()" [disabled]="busy()">{{hasLoaded()?'Actualizar':'Consultar registros'}}</ion-button></div>
+      <div class="records">@for(item of records();track item.userId){<ion-card><ion-card-content><span class="record-status" [class.pending]="item.status!=='REGISTERED'">{{item.status==='REGISTERED'?'Registro activo':item.status==='DELETING'?'Eliminación pendiente':'Registro pendiente'}}</span><h2>{{item.name}}</h2><p class="record-id">{{item.userId}}</p><details><summary>Detalles del registro</summary><p>Creado: {{item.createdAt|date:'dd/MM/yyyy, HH:mm'}}</p><p class="mono">Referencia facial: {{item.faceId||'Pendiente'}}</p></details><ion-button color="danger" fill="clear" (click)="remove(item)" [disabled]="busy()"><ion-icon name="trash-outline" slot="start"/>Eliminar rostro</ion-button></ion-card-content></ion-card>}@empty{<div class="empty-state"><span class="welcome-icon"><ion-icon name="person-add-outline"/></span><h2>{{hasLoaded()?'Todavía no hay rostros registrados':'Todo en un solo lugar'}}</h2><p>{{hasLoaded()?'Registra a la primera persona para empezar.':'Pulsa Consultar registros para ver la información actual.'}}</p>@if(hasLoaded()){<ion-button routerLink="/register">Registrar un rostro</ion-button>}</div>}</div>
+      @if(cursor()){<ion-button expand="block" fill="outline" (click)="load(true)" [disabled]="busy()">Ver más registros</ion-button>}
+    }
+  }
+  <footer>FaceRecognition AWS <span>·</span> Proyecto académico</footer>
+</main></ion-content>

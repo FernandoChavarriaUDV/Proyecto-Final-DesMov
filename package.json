@@ -1,0 +1,25 @@
+{
+  "name": "face-recognition-ionic-aws",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:backend": "node scripts/build-backend.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:mobile": "npm --prefix mobile run build"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity": "3.1175.0",
+    "@aws-sdk/client-dynamodb": "3.1175.0",
+    "@aws-sdk/client-rekognition": "3.1175.0",
+    "@aws-sdk/lib-dynamodb": "3.1175.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.0",
+    "@types/node": "^24.0.0",
+    "esbuild": "^0.27.0",
+    "tsx": "^4.20.0",
+    "typescript": "~5.9.3"
+  }
+}
